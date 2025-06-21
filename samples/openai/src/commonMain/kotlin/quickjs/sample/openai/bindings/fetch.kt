@@ -17,8 +17,7 @@ import io.ktor.http.HttpMethod
 import io.ktor.util.toMap
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.read
-import io.ktor.utils.io.readUntilDelimiter
-import io.ktor.utils.io.skipDelimiter
+import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,11 +26,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import quickjs_kt.samples.openai.generated.resources.Res
-import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-
-private val sseDelimiter = ByteBuffer.wrap("\n\n".encodeToByteArray())
 
 @OptIn(ExperimentalResourceApi::class)
 internal suspend fun QuickJs.defineFetch(coroutineScope: CoroutineScope): Cleanup {
@@ -134,37 +131,32 @@ private suspend fun readStreamBody(
 ) {
     val contentType = response.headers["Content-Type"]
     if (contentType == "text/event-stream") {
-        val buffer = ByteBuffer.allocate(4096)
+        val delimiter = "\n\n".toByteArray()
+        val buffer = ByteArrayOutputStream()
+        val tempBuffer = ByteArray(4096)
+
         while (true) {
-            buffer.clear()
-            val readCount = channel.readUntilDelimiter(sseDelimiter, buffer)
-            if (readCount < 0) {
+            val readCount = channel.readAvailable(tempBuffer)
+            if (readCount == -1) {
                 externalChannel.send(null)
                 break
-            } else if (readCount > 0) {
-                var hasDelimiter = false
-                try {
-                    channel.skipDelimiter(sseDelimiter)
-                    hasDelimiter = true
-                } catch (e: Throwable) {
-                    // No delimiter to skip
+            }
+
+            buffer.write(tempBuffer, 0, readCount)
+            val bytes = buffer.toByteArray()
+
+            // Check if we have the delimiter in the buffer
+            val delimiterIndex = bytes.indexOf(delimiter)
+            if (delimiterIndex != -1) {
+                // Send the data up to and including the delimiter
+                val message = bytes.copyOf(delimiterIndex + delimiter.size)
+                externalChannel.send(message)
+
+                // Keep any remaining data after the delimiter
+                buffer.reset()
+                if (delimiterIndex + delimiter.size < bytes.size) {
+                    buffer.write(bytes, delimiterIndex + delimiter.size, bytes.size - (delimiterIndex + delimiter.size))
                 }
-                val sseDelimiterArray = sseDelimiter.array()
-                val extraSize = if (hasDelimiter) sseDelimiterArray.size else 0
-                val bytes = ByteArray(readCount + extraSize)
-                buffer.position(0)
-                buffer.get(bytes, 0, readCount)
-                if (hasDelimiter) {
-                    System.arraycopy(
-                        sseDelimiterArray, 0, // src
-                        bytes, readCount, // dst
-                        sseDelimiterArray.size // count
-                    )
-                }
-                externalChannel.send(bytes)
-            } else {
-                externalChannel.send(null)
-                break
             }
         }
     } else {
@@ -205,3 +197,15 @@ private fun requestFromInit(init: Map<String, Any?>?): Request {
         body = body,
     )
 }
+
+private fun ByteArray.indexOf(subArray: ByteArray): Int {
+    if (subArray.isEmpty()) return -1
+    outer@ for (i in 0..this.size - subArray.size) {
+        for (j in subArray.indices) {
+            if (this[i + j] != subArray[j]) continue@outer
+        }
+        return i
+    }
+    return -1
+}
+

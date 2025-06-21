@@ -1,26 +1,22 @@
 import com.dokar.quickjs.disableUnsupportedPlatformTasks
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 
 plugins {
-    id("application")
     alias(libs.plugins.kotlinMultiplatform)
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    alias(libs.plugins.jetbrainsCompose)
+    alias(libs.plugins.compose.compiler)
 }
 
 kotlin {
     jvm {
-        withJava()
+        @OptIn(ExperimentalKotlinGradlePluginApi::class)
+        mainRun {
+            mainClass.set("ReplMainKt")
+        }
     }
 
-    mingwX64 {
-        binaries {
-            executable()
-        }
-    }
-    linuxX64 {
-        binaries {
-            executable()
-        }
-    }
+    mingwX64()
+    linuxX64()
 
     applyDefaultHierarchyTemplate()
 
@@ -44,8 +40,9 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
-application {
-    mainClass.set("ReplMainKt")
-}
+//application {
+//    mainClass = "com.dokar.quickjs.sample.repl.ReplMainKt"
+//    mainClass = "ReplMainKt"
+//}
 
 disableUnsupportedPlatformTasks()

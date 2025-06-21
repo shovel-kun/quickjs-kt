@@ -34,6 +34,7 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
+            implementation(compose.materialIconsExtended)
             implementation(projects.quickjs)
             implementation(compose.components.resources)
             implementation(libs.ktor.client.core)
